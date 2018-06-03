@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:spring="http://camel.apache.org/schema/spring"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xsi:schemaLocation="
+            http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+            http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd
+    			http://www.springframework.org/schema/context     http://www.springframework.org/schema/context/spring-context.xsd">
+    			
+	<bean id="property" class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="location" value="classpath:META-INF/spring/bundle.properties"/>
+        <property name="placeholderPrefix" value="{{"/>
+        <property name="placeholderSuffix" value="}}"/>
+    </bean>
+
+	<bean id="aesDataFormat" class="com.encryption.dataformat.EncryptionConfiguration">
+		<constructor-arg value="{{eas.secret}}" />
+	</bean> 
+	
+    <camelContext id="encryptionEAS" xmlns="http://camel.apache.org/schema/spring">
+    
+	    <propertyPlaceholder id="properties" location="classpath:META-INF/spring/bundle.properties"/>
+    
+		
+		<route id="DecryptPayload">
+				<from uri="file:{{file.enc.path}}?include={{file.enc.extension}}&amp;moveFailed={{file.enc.path}}/error/${file:name.noext}.${file:ext}"/>
+	
+	            <onException>
+	                <exception>java.security.GeneralSecurityException</exception>
+	                <log message="\n*** Exception While Encryption/Decryption\n${exception.stacktrace}" loggingLevel="ERROR"/>
+	                <stop/>
+	            </onException>
+	            
+	             <onException>
+	    		        <exception>java.lang.Exception</exception>
+		            <log message="\n*** Unexpected failure during flow.\n*** ${exception.stacktrace}" loggingLevel="ERROR"/>
+	            		<stop/>
+	        		</onException>
+	            
+	            <!--Decode from Base64-->
+	            <convertBodyTo type="java.lang.String"/>
+	
+	            <setBody>
+	                <method beanType="javax.xml.bind.DatatypeConverter" method="parseBase64Binary(${body})"/>
+	            </setBody>
+	            
+	            <!-- Decrypt-->
+	            <unmarshal ref="aesDataFormat"/>
+	            
+	            <convertBodyTo type="java.lang.String"/>
+	            
+	            <to uri="file:{{file.enc.path}}?fileName=${file:name.noext}.out"/>
+	
+	        </route>
+		
+			<route id="EncryptPayload">
+				<from uri="file:{{file.clear.path}}?include={{file.clear.extension}}&amp;moveFailed={{file.clear.path}}/error/${file:name.noext}.${file:ext}"/>
+				
+				<onException>
+	                <exception>java.security.GeneralSecurityException</exception>
+	                <log message="\n*** Exception While Encryption/Decryption\n${exception.stacktrace}" loggingLevel="ERROR"/>
+	                <stop/>
+	            </onException>
+	            
+	             <onException>
+	    		        <exception>java.lang.Exception</exception>
+		            <log message="\n*** Unexpected failure during flow.\n*** ${exception.stacktrace}" loggingLevel="ERROR"/>
+	            		<stop/>
+	        		</onException>
+	            
+		
+				<setHeader headerName="CamelCryptoInitVector">
+					<method beanType="com.encryption.dataformat.EncryptionConfiguration" method="generateIV" />
+				</setHeader>
+		
+				<!-- Encrypt -->
+				<marshal ref="aesDataFormat" />
+		
+				<!-- Base64 encode -->
+				<convertBodyTo type="java.lang.byte[]" />
+		
+				<setBody>
+					<method beanType="javax.xml.bind.DatatypeConverter" method="printBase64Binary(${body})" />
+				</setBody>
+				
+				<to uri="file:{{file.clear.path}}?fileName=${file:name.noext}.out"/>
+		
+			</route>
+			        
+	        
+    </camelContext>
+</beans>
